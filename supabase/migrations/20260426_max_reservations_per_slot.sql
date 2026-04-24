@@ -143,7 +143,8 @@ begin
   v_bucket := (
     (extract(hour from (p_start_at at time zone 'Europe/Madrid'))::int * 60
      + extract(minute from (p_start_at at time zone 'Europe/Madrid'))::int
-  ) / v_slot_interval;
+  ) / v_slot_interval
+  );
 
   select count(*)::int
   into v_slot_count
