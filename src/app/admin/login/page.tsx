@@ -74,32 +74,40 @@ function AdminLoginContent() {
             <code>NEXT_PUBLIC_SUPABASE_URL</code> y <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>.
           </p>
         ) : null}
-        <div className="space-y-2">
-          <Label htmlFor="admin-email">Email</Label>
-          <Input
-            id="admin-email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="admin@ilbanditoaltea.es"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="admin-password">Contraseña</Label>
-          <Input
-            id="admin-password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Tu contraseña"
-          />
-        </div>
-        {error ? <p className="text-sm text-primary">{error}</p> : null}
-        <Button className="w-full" onClick={signIn} disabled={loading || demoMode}>
-          {loading ? "Entrando..." : "Entrar al panel"}
-        </Button>
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void signIn();
+          }}
+        >
+          <div className="space-y-2">
+            <Label htmlFor="admin-email">Email</Label>
+            <Input
+              id="admin-email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="admin@ilbanditoaltea.es"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="admin-password">Contraseña</Label>
+            <Input
+              id="admin-password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Tu contraseña"
+            />
+          </div>
+          {error ? <p className="text-sm text-primary">{error}</p> : null}
+          <Button type="submit" className="w-full" disabled={loading || demoMode}>
+            {loading ? "Entrando..." : "Entrar al panel"}
+          </Button>
+        </form>
         {demoMode ? (
           <Button className="w-full" variant="secondary" onClick={enterDemoMode}>
             Entrar a demo

@@ -62,12 +62,54 @@ export const reservationSeed: AdminReservation[] = [
   },
 ];
 
+/** Inventario de códigos para el plano admin (Sala, barra y terraza). */
+export const floorTableInventory = {
+  sala: ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11"],
+  barra: ["B1", "B2", "B3", "B4"],
+  terraza: [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7",
+    "T8",
+    "T9",
+    "T10",
+    "T11",
+    "T12",
+    "T13",
+    "T14",
+    "T15",
+  ],
+} as const;
+
 export const tableSeed: AdminTable[] = [
-  { id: "t1", code: "T1", area: "Interior", minCapacity: 2, maxCapacity: 2, isActive: true },
-  { id: "t2", code: "T2", area: "Interior", minCapacity: 2, maxCapacity: 4, isActive: true },
-  { id: "t3", code: "T3", area: "Terraza", minCapacity: 2, maxCapacity: 4, isActive: true },
-  { id: "t4", code: "T4", area: "Terraza", minCapacity: 2, maxCapacity: 2, isActive: true },
-  { id: "t5", code: "T10", area: "Interior", minCapacity: 4, maxCapacity: 8, isActive: true },
+  ...floorTableInventory.sala.map((code, i) => ({
+    id: `seed-${code}`,
+    code,
+    area: "Interior" as const,
+    minCapacity: 2,
+    maxCapacity: 4,
+    isActive: true,
+  })),
+  ...floorTableInventory.barra.map((code) => ({
+    id: `seed-${code}`,
+    code,
+    area: "Interior" as const,
+    minCapacity: 1,
+    maxCapacity: 2,
+    isActive: true,
+  })),
+  ...floorTableInventory.terraza.map((code) => ({
+    id: `seed-${code}`,
+    code,
+    area: "Terraza" as const,
+    minCapacity: 2,
+    maxCapacity: 4,
+    isActive: true,
+  })),
 ];
 
 export const combinationSeed: AdminTableCombination[] = [
