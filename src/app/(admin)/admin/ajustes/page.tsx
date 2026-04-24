@@ -20,6 +20,7 @@ export default function AdminAjustesPage() {
   const [slotInterval, setSlotInterval] = useState(15);
   const [bufferBefore, setBufferBefore] = useState(0);
   const [bufferAfter, setBufferAfter] = useState(15);
+  const [maxReservationsPerSlot, setMaxReservationsPerSlot] = useState(3);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -34,6 +35,11 @@ export default function AdminAjustesPage() {
         setSlotInterval(settings.rules.slot_interval_minutes);
         setBufferBefore(settings.rules.default_buffer_before_minutes);
         setBufferAfter(settings.rules.default_buffer_after_minutes);
+        setMaxReservationsPerSlot(
+          "max_reservations_per_slot" in settings.rules && settings.rules.max_reservations_per_slot != null
+            ? Number(settings.rules.max_reservations_per_slot)
+            : 3,
+        );
       })
       .catch((cause: unknown) => {
         const message = cause instanceof Error ? cause.message : "No se pudieron cargar ajustes.";
@@ -94,6 +100,21 @@ export default function AdminAjustesPage() {
               onChange={(event) => setBufferAfter(Number(event.target.value || 0))}
             />
           </div>
+          <div className="space-y-1 md:col-span-2">
+            <Label htmlFor="maxPerSlot">Max. reservas por franja horaria</Label>
+            <Input
+              id="maxPerSlot"
+              type="number"
+              min={1}
+              max={100}
+              value={maxReservationsPerSlot}
+              onChange={(event) => setMaxReservationsPerSlot(Number(event.target.value || 3))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Cada franja dura lo mismo que el intervalo de slots (arriba). Por ejemplo, con 15 min y aqui 3, solo
+              se aceptan 3 reservas que empiezan en el mismo bloque (misma hora de entrada en la web).
+            </p>
+          </div>
         </div>
         <div className="flex items-center justify-end gap-3">
           {saved ? <p className="text-xs text-emerald-700">Cambios guardados</p> : null}
@@ -107,6 +128,7 @@ export default function AdminAjustesPage() {
                   slotIntervalMinutes: slotInterval,
                   bufferBeforeMinutes: bufferBefore,
                   bufferAfterMinutes: bufferAfter,
+                  maxReservationsPerSlot,
                 });
                 setSaved(true);
                 setError("");

@@ -195,9 +195,10 @@ export default function AdminReservasPage() {
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[780px] text-left text-sm">
+          <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
+                <th className="px-3 py-3">Codigo</th>
                 <th className="px-3 py-3">Hora</th>
                 <th className="px-3 py-3">Cliente</th>
                 <th className="px-3 py-3">Pax</th>
@@ -209,6 +210,9 @@ export default function AdminReservasPage() {
             <tbody>
               {tableRows.map((row) => (
                 <tr key={row.id} className="border-t">
+                  <td className="px-3 py-3">
+                    <span className="font-mono text-xs font-medium">{row.reservation_code}</span>
+                  </td>
                   <td className="px-3 py-3 font-medium">{formatTime(row.start_at)}</td>
                   <td className="px-3 py-3">
                     <p className="font-medium">{row.customer_name}</p>
@@ -317,7 +321,7 @@ export default function AdminReservasPage() {
               ))}
               {tableRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">
                     No hay reservas con esos filtros.
                   </td>
                 </tr>

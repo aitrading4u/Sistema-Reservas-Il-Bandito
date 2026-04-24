@@ -82,6 +82,8 @@ export const adminSettingsUpdateSchema = z.object({
   slotIntervalMinutes: z.number().int().min(5).max(60),
   bufferBeforeMinutes: z.number().int().min(0).max(120),
   bufferAfterMinutes: z.number().int().min(0).max(120),
+  /** Max reservas que inician en la misma franja (largo = intervalo de slot, ej. 15 min). */
+  maxReservationsPerSlot: z.number().int().min(1).max(100),
 });
 
 export const publicCustomerReservationsLookupSchema = z.object({

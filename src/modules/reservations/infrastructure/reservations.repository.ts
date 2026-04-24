@@ -6,6 +6,7 @@ import {
   madridDateToUtcDayRange,
   madridLocalDateTimeToUtcDate,
   madridLocalDateTimeToUtcIso,
+  madridSlotBucketIndexFromIso,
   utcDateToMadridTimeHHmm,
 } from "@/lib/datetime";
 import {
@@ -85,7 +86,7 @@ export class ReservationsRepository {
         this.supabase
           .from("reservation_rules")
           .select(
-            "slot_interval_minutes, default_buffer_before_minutes, default_buffer_after_minutes",
+            "slot_interval_minutes, default_buffer_before_minutes, default_buffer_after_minutes, max_reservations_per_slot",
           )
           .eq("restaurant_id", restaurantId)
           .eq("is_active", true)
@@ -118,6 +119,37 @@ export class ReservationsRepository {
 
   async getAvailability(input: AvailabilityRequest): Promise<AvailabilityResult> {
     const { rules, durations } = await this.getRules(input.restaurantId);
+    const rulesRow = rules as {
+      slot_interval_minutes: number;
+      default_buffer_before_minutes: number;
+      default_buffer_after_minutes: number;
+      max_reservations_per_slot?: number | null;
+    };
+    const maxPerSlot = Math.min(
+      100,
+      Math.max(1, Number(rulesRow.max_reservations_per_slot) || 3),
+    );
+
+    const dayRange = madridDateToUtcDayRange(input.date);
+    const { data: dayReservations, error: dayResErr } = await this.supabase
+      .from("reservations")
+      .select("start_at")
+      .eq("restaurant_id", input.restaurantId)
+      .gte("start_at", dayRange.startUtcIso)
+      .lte("start_at", dayRange.endUtcIso)
+      .in("status", ["pending", "confirmed", "seated"]);
+    if (dayResErr) {
+      throw fromSupabaseError(dayResErr, "No se pudo comprobar el cupo de reservas.");
+    }
+
+    const bucketCounts = new Map<number, number>();
+    for (const row of dayReservations ?? []) {
+      if (!row.start_at) continue;
+      const b = madridSlotBucketIndexFromIso(row.start_at, rulesRow.slot_interval_minutes);
+      if (b < 0) continue;
+      bucketCounts.set(b, (bucketCounts.get(b) ?? 0) + 1);
+    }
+
     const durationRules: DurationRule[] = durations.map((rule) => ({
       minPartySize: rule.min_party_size,
       maxPartySize: rule.max_party_size,
@@ -291,7 +323,12 @@ export class ReservationsRepository {
         }),
       );
 
-      return { time, available: hasCandidate };
+      const startAtIso = startAt.toISOString();
+      const bucket = madridSlotBucketIndexFromIso(startAtIso, rulesRow.slot_interval_minutes);
+      const inBucket = bucket < 0 ? 0 : (bucketCounts.get(bucket) ?? 0);
+      const underCap = inBucket < maxPerSlot;
+
+      return { time, available: hasCandidate && underCap };
     });
 
     const availableTimes = slots.filter((slot) => slot.available).map((slot) => slot.time);
@@ -793,7 +830,7 @@ export class ReservationsRepository {
         this.supabase
           .from("reservation_rules")
           .select(
-            "id, slot_interval_minutes, default_buffer_before_minutes, default_buffer_after_minutes",
+            "id, slot_interval_minutes, default_buffer_before_minutes, default_buffer_after_minutes, max_reservations_per_slot",
           )
           .eq("restaurant_id", restaurantId)
           .eq("is_active", true)
@@ -833,6 +870,7 @@ export class ReservationsRepository {
         slot_interval_minutes: input.slotIntervalMinutes,
         default_buffer_before_minutes: input.bufferBeforeMinutes,
         default_buffer_after_minutes: input.bufferAfterMinutes,
+        max_reservations_per_slot: input.maxReservationsPerSlot,
       })
       .eq("restaurant_id", input.restaurantId)
       .eq("is_active", true)

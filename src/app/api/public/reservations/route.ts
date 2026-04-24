@@ -91,6 +91,15 @@ export async function POST(request: Request) {
         409,
       );
     }
+    if (error instanceof AppError && error.code === "SLOT_CAP_REACHED") {
+      return ok(
+        {
+          error: error.message,
+          code: "SLOT_CAP_REACHED",
+        },
+        409,
+      );
+    }
     return fail(error, "api.public.reservations.create");
   }
 }

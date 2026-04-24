@@ -99,11 +99,18 @@ export function PublicReservationFlow() {
   const [feedback, setFeedback] = useState<string>("");
   const [guestErrors, setGuestErrors] = useState<Partial<Record<keyof GuestInfo, string>>>({});
   const [reservationCode, setReservationCode] = useState<string>("");
+  /** Deja de ofrecer reserva online y muestra CTA al telefono (grupos > 10 comensales). */
+  const [wantsPhoneForLargeGroup, setWantsPhoneForLargeGroup] = useState(false);
 
   const minDate = useMemo(() => todayISO(), []);
   const maxDate = useMemo(() => addDays(new Date(), 60), []);
 
   const progressPercent = useMemo(() => (step / steps.length) * 100, [step]);
+
+  const availableSlots = useMemo(
+    () => availability?.slots.filter((s) => s.available) ?? [],
+    [availability],
+  );
   const suggestedDates = useMemo(
     () => [0, 1, 2, 3].map((offset) => addDays(new Date(), offset)),
     [],
@@ -384,7 +391,10 @@ export function PublicReservationFlow() {
     setFeedback("");
     setGuestErrors({});
     setReservationCode("");
+    setWantsPhoneForLargeGroup(false);
   }
+
+  const phoneHref = `tel:${ilBanditoConfig.restaurant.phone.replace(/\D/g, "")}`;
 
   return (
     <div className="space-y-4 pb-16">
@@ -435,29 +445,73 @@ export function PublicReservationFlow() {
         {step === 1 ? (
           <section className="space-y-4">
             <h2 className="text-xl font-semibold">1. Cuantas personas sois?</h2>
-            <div className="grid grid-cols-5 gap-2">
-              {partyOptions.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  aria-pressed={partySize === option}
+            {wantsPhoneForLargeGroup ? (
+              <div className="space-y-4 rounded-xl border border-primary/25 bg-primary/5 p-4">
+                <p className="text-sm font-semibold">{pageText.largeGroupTitle}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{pageText.largeGroupMessage}</p>
+                <a
+                  href={phoneHref}
                   className={cn(
-                    "h-12 rounded-xl border text-base font-semibold shadow-sm transition-colors sm:text-sm",
-                    partySize === option
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "bg-background hover:bg-muted",
+                    buttonVariants({ size: "lg", className: "w-full" }),
+                    "text-center",
                   )}
-                  onClick={() => setPartySize(option)}
                 >
-                  {option}
-                </button>
-              ))}
-            </div>
-            <div className="sticky bottom-2 bg-card pt-1">
-              <Button className="w-full" size="lg" onClick={goNext}>
-                Continuar
-              </Button>
-            </div>
+                  {pageText.largeGroupCta} · {ilBanditoConfig.restaurant.phone}
+                </a>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  size="lg"
+                  onClick={() => {
+                    setWantsPhoneForLargeGroup(false);
+                    setError("");
+                  }}
+                >
+                  {pageText.largeGroupBack}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-5 gap-2">
+                  {partyOptions.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-pressed={partySize === option}
+                      className={cn(
+                        "h-12 rounded-xl border text-base font-semibold shadow-sm transition-colors sm:text-sm",
+                        partySize === option
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "bg-background hover:bg-muted",
+                      )}
+                      onClick={() => {
+                        setPartySize(option);
+                        setWantsPhoneForLargeGroup(false);
+                      }}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    setWantsPhoneForLargeGroup(true);
+                    setError("");
+                  }}
+                >
+                  {pageText.largeGroupMoreThan10Button}
+                </Button>
+                <div className="sticky bottom-2 bg-card pt-1">
+                  <Button className="w-full" size="lg" onClick={goNext}>
+                    Continuar
+                  </Button>
+                </div>
+              </>
+            )}
           </section>
         ) : null}
 
@@ -703,7 +757,9 @@ export function PublicReservationFlow() {
       </Card>
 
       <Card className="p-4">
-        <p className="text-sm font-medium">{pageText.contactHint}</p>
+        <p className="text-sm font-medium">
+          {wantsPhoneForLargeGroup && step === 1 ? pageText.largeGroupContactHint : pageText.contactHint}
+        </p>
         <p className="mt-1 text-sm text-muted-foreground">
           {pageText.contactPhoneLabel}: {ilBanditoConfig.restaurant.phone}
         </p>

@@ -117,6 +117,7 @@ function getDemoSettings() {
       slot_interval_minutes: 15,
       default_buffer_before_minutes: 0,
       default_buffer_after_minutes: 15,
+      max_reservations_per_slot: 3,
     },
   });
 }
@@ -507,6 +508,7 @@ export async function saveAdminSettings(payload: {
   slotIntervalMinutes: number;
   bufferBeforeMinutes: number;
   bufferAfterMinutes: number;
+  maxReservationsPerSlot: number;
 }) {
   if (isDemoMode()) {
     const current = getDemoSettings();
@@ -522,6 +524,7 @@ export async function saveAdminSettings(payload: {
         slot_interval_minutes: payload.slotIntervalMinutes,
         default_buffer_before_minutes: payload.bufferBeforeMinutes,
         default_buffer_after_minutes: payload.bufferAfterMinutes,
+        max_reservations_per_slot: payload.maxReservationsPerSlot,
       },
     };
     writeDemoState(DEMO_SETTINGS_KEY, next);

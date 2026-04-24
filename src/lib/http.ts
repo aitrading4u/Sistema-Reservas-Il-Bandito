@@ -44,6 +44,13 @@ export function fromSupabaseError(
   if (supabaseError.code === "23P01" || supabaseError.message.includes("NO_AVAILABILITY")) {
     return new AppError("No hay disponibilidad para esa hora.", 409, "NO_AVAILABILITY");
   }
+  if (supabaseError.message.includes("SLOT_CAP_REACHED")) {
+    return new AppError(
+      "Ya se ha alcanzado el maximo de reservas para esa franja horaria.",
+      409,
+      "SLOT_CAP_REACHED",
+    );
+  }
 
   return new AppError(fallbackMessage, 500, "DATABASE_ERROR", {
     code: supabaseError.code,

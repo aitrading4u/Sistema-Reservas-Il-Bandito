@@ -15,6 +15,7 @@ import { StatusBadge } from "@/modules/admin/ui/status-badge";
 
 type ReservationRow = {
   id: string;
+  reservation_code: string;
   customer_name: string;
   party_size: number;
   status: "pending" | "confirmed" | "cancelled" | "seated" | "finished" | "no_show";
@@ -225,7 +226,9 @@ export default function AdminCalendarioDiaPage() {
                     <p className="text-sm font-semibold">
                       {timeFromISO(item.start_at)} · {item.customer_name}
                     </p>
-                    <p className="text-xs text-muted-foreground">{item.party_size} pax</p>
+                    <p className="text-xs text-muted-foreground">
+                      {item.party_size} pax · <span className="font-mono">{item.reservation_code}</span>
+                    </p>
                   </div>
                   {dayActionButtons(item)}
                 </div>
@@ -247,7 +250,9 @@ export default function AdminCalendarioDiaPage() {
                     <p className="text-sm font-semibold">
                       {timeFromISO(item.start_at)} · {item.customer_name}
                     </p>
-                    <p className="text-xs text-muted-foreground">{item.party_size} pax</p>
+                    <p className="text-xs text-muted-foreground">
+                      {item.party_size} pax · <span className="font-mono">{item.reservation_code}</span>
+                    </p>
                   </div>
                   {dayActionButtons(item)}
                 </div>

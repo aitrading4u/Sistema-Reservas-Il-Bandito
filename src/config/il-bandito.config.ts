@@ -69,6 +69,14 @@ export const ilBanditoConfig = {
       "Si no encuentras la hora exacta, te propondremos alternativas cercanas disponibles.",
     contactHint: "Tambien puedes reservar por telefono si lo prefieres.",
     contactPhoneLabel: "Telefono de reservas",
+    largeGroupTitle: "Más de 10 personas",
+    largeGroupMessage:
+      "Para grupos grandes o celebraciones, no usamos reserva online. Llama o escribe a reservas y te organizamos el espacio.",
+    largeGroupCta: "Llamar ahora",
+    largeGroupBack: "Elegir entre 1 y 10 comensales (reserva online)",
+    largeGroupMoreThan10Button: "Más de 10 personas (solo telefono)",
+    largeGroupContactHint:
+      "Grupos de mas de 10: reserva obligatoriamente por telefono. Te atendemos para mesas juntas y eventos.",
   },
   confirmationTexts: {
     successHeadline: "Reserva confirmada",

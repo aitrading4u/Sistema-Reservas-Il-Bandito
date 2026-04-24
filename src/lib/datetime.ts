@@ -38,3 +38,12 @@ export function madridDateToUtcDayRange(date: string) {
     endUtcIso: end.toUTC().toISO() as string,
   };
 }
+
+/** Index of the slot window (0,1,2,...) for a time on that day, using Madrid clock and a fixed minute interval. */
+export function madridSlotBucketIndexFromIso(startAtIso: string, intervalMinutes: number): number {
+  const dt = DateTime.fromISO(startAtIso, { zone: "utc" }).setZone(MADRID_TZ);
+  if (!dt.isValid) return -1;
+  const dayStart = dt.startOf("day");
+  const minutes = dt.diff(dayStart, "minutes").minutes;
+  return Math.floor(minutes / intervalMinutes);
+}
