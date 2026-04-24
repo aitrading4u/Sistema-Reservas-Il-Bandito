@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEven
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils/cn";
 import { floorTableInventory } from "@/modules/admin/data/admin.seed";
 import { SectionHeader } from "@/modules/admin/ui/section-header";
@@ -14,7 +15,8 @@ interface PlannerTable {
   id: string;
   code: string;
   zone: "Interior" | "Terraza";
-  seats: number;
+  minPax: number;
+  maxPax: number;
   x: number;
   y: number;
 }
@@ -26,18 +28,71 @@ interface PlannerBar {
   height: number;
 }
 
-const STORAGE_TABLES = "ilbandito.demo.planner.tables.v2";
+const STORAGE_TABLES = "ilbandito.demo.planner.tables.v3";
 const STORAGE_BAR = "ilbandito.demo.planner.bar.v1";
 
 const TABLE_SIZE = 56; // h-14 w-14
 const TABLE_HALF = TABLE_SIZE / 2;
 
-function sortCodesByNumber(codes: string[]) {
-  return [...codes].sort((a, b) => {
-    const na = parseInt(a.replace(/^\D+/, ""), 10);
-    const nb = parseInt(b.replace(/^\D+/, ""), 10);
-    return (Number.isNaN(na) ? 0 : na) - (Number.isNaN(nb) ? 0 : nb);
-  });
+function codeSortKey(code: string) {
+  const n = parseInt(code.replace(/^\D+/, ""), 10);
+  return Number.isNaN(n) ? 0 : n;
+}
+
+function sortTablesInCategory(tables: PlannerTable[]) {
+  return [...tables].sort((a, b) => codeSortKey(a.code) - codeSortKey(b.code) || a.code.localeCompare(b.code));
+}
+
+function normalizePlannerTable(raw: unknown): PlannerTable | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== "string" || typeof o.code !== "string") return null;
+  const x = typeof o.x === "number" ? o.x : 0;
+  const y = typeof o.y === "number" ? o.y : 0;
+  const zone: "Interior" | "Terraza" = o.zone === "Terraza" ? "Terraza" : "Interior";
+  let minPax = 1;
+  let maxPax = 4;
+  if (typeof o.minPax === "number" && typeof o.maxPax === "number") {
+    minPax = Math.max(1, Math.min(99, o.minPax));
+    maxPax = Math.max(1, Math.min(99, o.maxPax));
+  } else if (typeof (o as { seats?: number }).seats === "number") {
+    const s = (o as { seats: number }).seats;
+    maxPax = Math.max(1, Math.min(99, s));
+    minPax = Math.min(2, maxPax);
+  }
+  if (minPax > maxPax) {
+    [minPax, maxPax] = [maxPax, minPax];
+  }
+  return { id: o.id, code: o.code.trim() || o.code, zone, minPax, maxPax, x, y };
+}
+
+function loadPlannerTablesFromStorage(): PlannerTable[] {
+  if (typeof window === "undefined") return defaultPlannerTables();
+  const stored = window.localStorage.getItem(STORAGE_TABLES);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored) as unknown;
+      if (Array.isArray(parsed)) {
+        const tables = parsed.map(normalizePlannerTable).filter((t): t is PlannerTable => t !== null);
+        if (tables.length > 0) return tables;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  const legacy = window.localStorage.getItem("ilbandito.demo.planner.tables.v2");
+  if (legacy) {
+    try {
+      const parsed = JSON.parse(legacy) as unknown;
+      if (Array.isArray(parsed)) {
+        const tables = parsed.map(normalizePlannerTable).filter((t): t is PlannerTable => t !== null);
+        if (tables.length > 0) return tables;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  return defaultPlannerTables();
 }
 
 function defaultPlannerTables(): PlannerTable[] {
@@ -50,7 +105,8 @@ function defaultPlannerTables(): PlannerTable[] {
       id: `planner-${code}`,
       code,
       zone: "Interior",
-      seats: 4,
+      minPax: 2,
+      maxPax: 4,
       x: 48 + col * 100,
       y: 48 + row * 95,
     });
@@ -60,7 +116,8 @@ function defaultPlannerTables(): PlannerTable[] {
       id: `planner-${code}`,
       code,
       zone: "Interior",
-      seats: 2,
+      minPax: 1,
+      maxPax: 2,
       x: 48 + i * 92,
       y: 400,
     });
@@ -73,7 +130,8 @@ function defaultPlannerTables(): PlannerTable[] {
       id: `planner-${code}`,
       code,
       zone: "Terraza",
-      seats: 4,
+      minPax: 2,
+      maxPax: 4,
       x: 48 + col * 98,
       y: 52 + row * 92,
     });
@@ -81,35 +139,28 @@ function defaultPlannerTables(): PlannerTable[] {
   return out;
 }
 
-function codesByCategory(tables: PlannerTable[]) {
-  const sala: string[] = [];
-  const barra: string[] = [];
-  const terraza: string[] = [];
+function tablesByCategory(tables: PlannerTable[]) {
+  const sala: PlannerTable[] = [];
+  const barra: PlannerTable[] = [];
+  const terraza: PlannerTable[] = [];
   for (const t of tables) {
-    if (t.code.startsWith("S")) sala.push(t.code);
-    else if (t.code.startsWith("B")) barra.push(t.code);
-    else if (t.code.startsWith("T")) terraza.push(t.code);
+    const c = t.code.toUpperCase();
+    if (c.startsWith("S")) sala.push(t);
+    else if (c.startsWith("B")) barra.push(t);
+    else if (c.startsWith("T")) terraza.push(t);
+    else sala.push(t);
   }
   return {
-    sala: sortCodesByNumber(sala),
-    barra: sortCodesByNumber(barra),
-    terraza: sortCodesByNumber(terraza),
+    sala: sortTablesInCategory(sala),
+    barra: sortTablesInCategory(barra),
+    terraza: sortTablesInCategory(terraza),
   };
 }
 
 export default function AdminMesasPage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [floorView, setFloorView] = useState<FloorView>("salaBarra");
-  const [plannerTables, setPlannerTables] = useState<PlannerTable[]>(() => {
-    if (typeof window === "undefined") return defaultPlannerTables();
-    const stored = window.localStorage.getItem(STORAGE_TABLES);
-    if (!stored) return defaultPlannerTables();
-    try {
-      return JSON.parse(stored) as PlannerTable[];
-    } catch {
-      return defaultPlannerTables();
-    }
-  });
+  const [plannerTables, setPlannerTables] = useState<PlannerTable[]>(() => loadPlannerTablesFromStorage());
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [plannerBar, setPlannerBar] = useState<PlannerBar>(() => {
     if (typeof window === "undefined") {
@@ -147,7 +198,7 @@ export default function AdminMesasPage() {
     [plannerTables],
   );
   const visibleTables = floorView === "salaBarra" ? interiorTables : terrazaTables;
-  const listGroups = useMemo(() => codesByCategory(plannerTables), [plannerTables]);
+  const listGroups = useMemo(() => tablesByCategory(plannerTables), [plannerTables]);
 
   function getCanvasClamp() {
     const el = canvasRef.current;
@@ -237,14 +288,59 @@ export default function AdminMesasPage() {
     );
   }
 
+  function codeTakenByOther(id: string, code: string) {
+    const t = code.trim();
+    if (!t) return true;
+    return plannerTables.some(
+      (row) => row.id !== id && row.code.trim().toLowerCase() === t.toLowerCase(),
+    );
+  }
+
+  function patchTable(id: string, patch: Partial<Pick<PlannerTable, "code" | "minPax" | "maxPax" | "zone">>) {
+    setPlannerTables((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+        if (patch.code !== undefined) {
+          const c = patch.code.trim();
+          if (!c) return row;
+          if (prev.some((r) => r.id !== id && r.code.trim().toLowerCase() === c.toLowerCase())) {
+            return row;
+          }
+        }
+        let code = patch.code !== undefined ? patch.code.trim() : row.code;
+        let minPax = row.minPax;
+        let maxPax = row.maxPax;
+        if (patch.minPax !== undefined || patch.maxPax !== undefined) {
+          minPax = Math.max(1, Math.min(99, patch.minPax ?? row.minPax));
+          maxPax = Math.max(1, Math.min(99, patch.maxPax ?? row.maxPax));
+          if (minPax > maxPax) {
+            const swap = minPax;
+            minPax = maxPax;
+            maxPax = swap;
+          }
+        }
+        const zone = patch.zone ?? row.zone;
+        return { ...row, code, minPax, maxPax, zone };
+      }),
+    );
+  }
+
+  function deleteTable(id: string) {
+    setPlannerTables((prev) => prev.filter((row) => row.id !== id));
+    setSelectedTableId((current) => (current === id ? null : current));
+  }
+
   function addTable(kind: "sala" | "barra" | "terraza") {
     const prefix = kind === "sala" ? "S" : kind === "barra" ? "B" : "T";
     const nums = plannerTables
-      .filter((t) => t.code.startsWith(prefix))
-      .map((t) => parseInt(t.code.replace(/^\D+/, ""), 10))
+      .filter((t) => t.code.toUpperCase().startsWith(prefix))
+      .map((t) => parseInt(t.code.slice(prefix.length), 10))
       .filter((n) => !Number.isNaN(n));
     const nextN = (nums.length ? Math.max(...nums) : 0) + 1;
     const code = `${prefix}${nextN}`;
+    if (codeTakenByOther("", code)) {
+      return;
+    }
     const zone: "Interior" | "Terraza" = kind === "terraza" ? "Terraza" : "Interior";
     const newId = `planner-${code}-${Date.now()}`;
     setPlannerTables((prev) => [
@@ -253,7 +349,8 @@ export default function AdminMesasPage() {
         id: newId,
         code,
         zone,
-        seats: kind === "barra" ? 2 : 4,
+        minPax: kind === "barra" ? 1 : 2,
+        maxPax: kind === "barra" ? 2 : 4,
         x: 100,
         y: 100,
       },
@@ -341,8 +438,9 @@ export default function AdminMesasPage() {
                   key={table.id}
                   type="button"
                   data-table-id={table.id}
+                  title={table.code}
                   className={cn(
-                    "absolute z-[2] h-14 w-14 cursor-grab rounded-full border-2 text-xs font-semibold transition",
+                    "absolute z-[2] flex h-14 w-14 cursor-grab items-center justify-center rounded-full border-2 px-0.5 text-center text-[10px] font-semibold leading-tight transition",
                     selectedTableId === table.id
                       ? "border-primary bg-primary text-primary-foreground"
                       : "border-[#9c3f2e] bg-[#e64d3a] text-white hover:brightness-110",
@@ -354,7 +452,7 @@ export default function AdminMesasPage() {
                     setDragState({ type: "table", id: table.id, zone: "Interior" });
                   }}
                 >
-                  {table.code}
+                  <span className="line-clamp-2 break-words">{table.code}</span>
                 </button>
               ))}
             </>
@@ -364,8 +462,9 @@ export default function AdminMesasPage() {
                 key={table.id}
                 type="button"
                 data-table-id={table.id}
+                title={table.code}
                 className={cn(
-                  "absolute z-[2] h-14 w-14 cursor-grab rounded-full border-2 text-xs font-semibold transition",
+                  "absolute z-[2] flex h-14 w-14 cursor-grab items-center justify-center rounded-full border-2 px-0.5 text-center text-[10px] font-semibold leading-tight transition",
                   selectedTableId === table.id
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-[#9c3f2e] bg-[#e64d3a] text-white hover:brightness-110",
@@ -377,7 +476,7 @@ export default function AdminMesasPage() {
                   setDragState({ type: "table", id: table.id, zone: "Terraza" });
                 }}
               >
-                {table.code}
+                <span className="line-clamp-2 break-words">{table.code}</span>
               </button>
             ))
           )}
@@ -389,9 +488,47 @@ export default function AdminMesasPage() {
             {selectedTable && visibleTables.some((t) => t.id === selectedTableId) ? (
               <>
                 <p className="text-sm text-muted-foreground">
-                  {selectedTable.code} · {selectedTable.zone === "Interior" ? "Sala/Barra" : "Terraza"} ·{" "}
-                  {selectedTable.seats} pax
+                  {selectedTable.zone === "Interior" ? "Sala/Barra" : "Terraza"} · {selectedTable.minPax}–
+                  {selectedTable.maxPax} comensales
                 </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="sel-name" className="text-xs">Nombre en plano</Label>
+                    <Input
+                      id="sel-name"
+                      value={selectedTable.code}
+                      onChange={(e) => patchTable(selectedTable.id, { code: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="sel-min" className="text-xs">Min.</Label>
+                      <Input
+                        id="sel-min"
+                        type="number"
+                        min={1}
+                        max={99}
+                        value={selectedTable.minPax}
+                        onChange={(e) =>
+                          patchTable(selectedTable.id, { minPax: Number(e.target.value || 1) })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="sel-max" className="text-xs">Max.</Label>
+                      <Input
+                        id="sel-max"
+                        type="number"
+                        min={1}
+                        max={99}
+                        value={selectedTable.maxPax}
+                        onChange={(e) =>
+                          patchTable(selectedTable.id, { maxPax: Number(e.target.value || 1) })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="secondary" onClick={() => moveSelected(0, -12)}>Arriba</Button>
                   <Button size="sm" variant="secondary" onClick={() => moveSelected(0, 12)}>Abajo</Button>
@@ -409,6 +546,18 @@ export default function AdminMesasPage() {
                     <option value="Terraza">Terraza</option>
                   </select>
                 </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full text-primary hover:bg-primary/10"
+                  onClick={() => {
+                    if (window.confirm("¿Eliminar esta mesa del plano?")) {
+                      deleteTable(selectedTable.id);
+                    }
+                  }}
+                >
+                  Eliminar mesa
+                </Button>
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -473,26 +622,115 @@ export default function AdminMesasPage() {
       </Card>
 
       <Card className="p-4">
-        <h2 className="mb-4 text-lg font-semibold">Todas las mesas</h2>
-        <div className="grid gap-6 md:grid-cols-3">
-          <div>
-            <h3 className="mb-2 text-sm font-semibold text-muted-foreground">Sala</h3>
-            <p className="text-sm leading-relaxed text-foreground">
-              {listGroups.sala.length ? listGroups.sala.join(", ") : "—"}
-            </p>
-          </div>
-          <div>
-            <h3 className="mb-2 text-sm font-semibold text-muted-foreground">Barra</h3>
-            <p className="text-sm leading-relaxed text-foreground">
-              {listGroups.barra.length ? listGroups.barra.join(", ") : "—"}
-            </p>
-          </div>
-          <div>
-            <h3 className="mb-2 text-sm font-semibold text-muted-foreground">Terraza</h3>
-            <p className="text-sm leading-relaxed text-foreground">
-              {listGroups.terraza.length ? listGroups.terraza.join(", ") : "—"}
-            </p>
-          </div>
+        <h2 className="mb-2 text-lg font-semibold">Todas las mesas</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Lista vertical: edita el nombre, el aforo (min.–máx.) o elimina. El nombre no puede repetirse.
+        </p>
+        <div className="max-h-[min(70vh,720px)] space-y-6 overflow-y-auto pr-1">
+          {([
+            { key: "sala" as const, label: "Sala" },
+            { key: "barra" as const, label: "Barra" },
+            { key: "terraza" as const, label: "Terraza" },
+          ] as const).map(({ key, label }) => {
+            const group = listGroups[key];
+            if (group.length === 0) {
+              return (
+                <div key={key}>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">{label}</h3>
+                  <p className="text-sm text-muted-foreground">No hay mesas en esta zona.</p>
+                </div>
+              );
+            }
+            return (
+              <div key={key}>
+                <h3 className="mb-3 text-sm font-semibold text-foreground">{label}</h3>
+                <ul className="space-y-3">
+                  {group.map((table) => (
+                    <li
+                      key={table.id}
+                      className={cn(
+                        "flex flex-col gap-3 rounded-xl border border-border/80 bg-card/50 p-3 sm:flex-row sm:items-end sm:justify-between",
+                        selectedTableId === table.id && "ring-2 ring-primary/40",
+                      )}
+                    >
+                      <div className="grid w-full min-w-0 flex-1 gap-3 sm:grid-cols-[1fr,auto,auto] sm:items-end">
+                        <div className="space-y-1">
+                          <Label className="text-xs" htmlFor={`name-${table.id}`}>
+                            Nombre
+                          </Label>
+                          <Input
+                            id={`name-${table.id}`}
+                            value={table.code}
+                            onChange={(e) => patchTable(table.id, { code: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 sm:max-w-[200px]">
+                          <div className="space-y-1">
+                            <Label className="text-xs" htmlFor={`min-${table.id}`}>
+                              Mín. pax
+                            </Label>
+                            <Input
+                              id={`min-${table.id}`}
+                              type="number"
+                              min={1}
+                              max={99}
+                              className="min-w-0"
+                              value={table.minPax}
+                              onChange={(e) =>
+                                patchTable(table.id, { minPax: Number(e.target.value || 1) })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs" htmlFor={`max-${table.id}`}>
+                              Máx. pax
+                            </Label>
+                            <Input
+                              id={`max-${table.id}`}
+                              type="number"
+                              min={1}
+                              max={99}
+                              className="min-w-0"
+                              value={table.maxPax}
+                              onChange={(e) =>
+                                patchTable(table.id, { maxPax: Number(e.target.value || 1) })
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 sm:justify-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={selectedTableId === table.id ? "default" : "secondary"}
+                            onClick={() => {
+                              setSelectedTableId(table.id);
+                              setFloorView(table.zone === "Terraza" ? "terraza" : "salaBarra");
+                            }}
+                          >
+                            Ver en plano
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="text-primary"
+                            onClick={() => {
+                              if (window.confirm("¿Eliminar esta mesa?")) {
+                                deleteTable(table.id);
+                              }
+                            }}
+                          >
+                            Eliminar
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
         </div>
       </Card>
     </section>
