@@ -6,20 +6,21 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils/cn";
+import { isDemoMode } from "@/lib/demo-mode";
 import { floorTableInventory } from "@/modules/admin/data/admin.seed";
+import {
+  createAdminTable,
+  deleteAdminTable,
+  fetchAdminFloorPlan,
+  type AdminFloorPlanTable,
+  updateAdminFloorBar,
+  updateAdminTable,
+} from "@/modules/admin/infrastructure/admin-api";
 import { SectionHeader } from "@/modules/admin/ui/section-header";
 
-type FloorView = "salaBarra" | "terraza";
+import { isLikelyServerTableId, toDiningArea, toPlanner, type PlannerTable, type PlannerZone } from "./floor-helpers";
 
-interface PlannerTable {
-  id: string;
-  code: string;
-  zone: "Interior" | "Terraza";
-  minPax: number;
-  maxPax: number;
-  x: number;
-  y: number;
-}
+type FloorView = "salaBarra" | "terraza";
 
 interface PlannerBar {
   x: number;
@@ -157,21 +158,32 @@ function tablesByCategory(tables: PlannerTable[]) {
   };
 }
 
+const DEFAULT_BAR: PlannerBar = { x: 500, y: 180, width: 150, height: 76 };
+
 export default function AdminMesasPage() {
+  const isDemo = isDemoMode();
   const canvasRef = useRef<HTMLDivElement>(null);
+  const plannerTablesRef = useRef<PlannerTable[]>([]);
+  const plannerBarRef = useRef<PlannerBar>(DEFAULT_BAR);
+  const lastDragTablePos = useRef<{ id: string; x: number; y: number } | null>(null);
+  const lastBarLayout = useRef<PlannerBar | null>(null);
+  const persistDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [floorView, setFloorView] = useState<FloorView>("salaBarra");
-  const [plannerTables, setPlannerTables] = useState<PlannerTable[]>(() => loadPlannerTablesFromStorage());
+  const [plannerTables, setPlannerTables] = useState<PlannerTable[]>(() => (isDemo ? loadPlannerTablesFromStorage() : []));
+  const [planLoading, setPlanLoading] = useState(!isDemo);
+  const [planError, setPlanError] = useState("");
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [plannerBar, setPlannerBar] = useState<PlannerBar>(() => {
-    if (typeof window === "undefined") {
-      return { x: 500, y: 180, width: 150, height: 76 };
+    if (typeof window === "undefined" || !isDemo) {
+      return DEFAULT_BAR;
     }
     const stored = window.localStorage.getItem(STORAGE_BAR);
-    if (!stored) return { x: 500, y: 180, width: 150, height: 76 };
+    if (!stored) return DEFAULT_BAR;
     try {
       return JSON.parse(stored) as PlannerBar;
     } catch {
-      return { x: 500, y: 180, width: 150, height: 76 };
+      return DEFAULT_BAR;
     }
   });
   const [dragState, setDragState] = useState<
@@ -179,14 +191,56 @@ export default function AdminMesasPage() {
   >(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_TABLES, JSON.stringify(plannerTables));
+    plannerTablesRef.current = plannerTables;
   }, [plannerTables]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_BAR, JSON.stringify(plannerBar));
+    plannerBarRef.current = plannerBar;
   }, [plannerBar]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isDemo) return;
+    window.localStorage.setItem(STORAGE_TABLES, JSON.stringify(plannerTables));
+  }, [plannerTables, isDemo]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isDemo) return;
+    window.localStorage.setItem(STORAGE_BAR, JSON.stringify(plannerBar));
+  }, [plannerBar, isDemo]);
+
+  useEffect(() => {
+    if (isDemo) {
+      setPlanLoading(false);
+      return;
+    }
+    setPlanLoading(true);
+    setPlanError("");
+    void fetchAdminFloorPlan()
+      .then((data) => {
+        if (data.tables && data.tables.length > 0) {
+          setPlannerTables((data.tables as AdminFloorPlanTable[]).map((t) => toPlanner(t)));
+          if (data.floorBar) {
+            const b = data.floorBar;
+            if (
+              typeof b.x === "number" &&
+              typeof b.y === "number" &&
+              typeof b.width === "number" &&
+              typeof b.height === "number"
+            ) {
+              setPlannerBar({ x: b.x, y: b.y, width: b.width, height: b.height });
+            }
+          }
+        } else {
+          setPlannerTables([]);
+        }
+      })
+      .catch((e: unknown) => {
+        setPlanError(e instanceof Error ? e.message : "No se pudo cargar el plano");
+      })
+      .finally(() => {
+        setPlanLoading(false);
+      });
+  }, [isDemo]);
 
   const selectedTable = plannerTables.find((table) => table.id === selectedTableId) ?? null;
   const interiorTables = useMemo(
@@ -240,52 +294,86 @@ export default function AdminMesasPage() {
     if (!dragState) return;
     const position = positionFromPointer(event);
     if (dragState.type === "bar") {
-      setPlannerBar((prev) => ({ ...prev, x: position.x, y: position.y }));
+      setPlannerBar((prev) => {
+        const next = { ...prev, x: position.x, y: position.y };
+        lastBarLayout.current = next;
+        return next;
+      });
       return;
     }
     setPlannerTables((prev) =>
-      prev.map((table) =>
-        table.id === dragState.id && table.zone === dragState.zone
-          ? { ...table, x: position.x, y: position.y }
-          : table,
-      ),
+      prev.map((table) => {
+        if (table.id !== dragState.id || table.zone !== dragState.zone) return table;
+        const next = { ...table, x: position.x, y: position.y };
+        lastDragTablePos.current = { id: next.id, x: next.x, y: next.y };
+        return next;
+      }),
     );
   }
 
-  function endDrag() {
+  function handleCanvasPointerUp() {
+    if (!isDemo) {
+      if (dragState?.type === "bar" && lastBarLayout.current) {
+        void updateAdminFloorBar(lastBarLayout.current);
+      } else if (dragState?.type === "table" && lastDragTablePos.current) {
+        const p = lastDragTablePos.current;
+        if (isLikelyServerTableId(p.id)) {
+          void updateAdminTable(p.id, { plan_x: p.x, plan_y: p.y });
+        }
+      }
+    }
+    lastBarLayout.current = null;
+    lastDragTablePos.current = null;
     setDragState(null);
   }
 
   function moveSelected(dx: number, dy: number) {
     if (!selectedTableId) return;
     const { maxX, maxY } = getCanvasClamp();
-    setPlannerTables((prev) =>
-      prev.map((table) =>
-        table.id === selectedTableId
-          ? {
-              ...table,
-              x: clamp(table.x + dx, 10, maxX - 10),
-              y: clamp(table.y + dy, 10, maxY - 10),
-            }
-          : table,
-      ),
-    );
+    setPlannerTables((prev) => {
+      return prev.map((table) => {
+        if (table.id !== selectedTableId) return table;
+        const x = clamp(table.x + dx, 10, maxX - 10);
+        const y = clamp(table.y + dy, 10, maxY - 10);
+        if (!isDemo && isLikelyServerTableId(table.id)) {
+          queueMicrotask(() => {
+            void updateAdminTable(table.id, { plan_x: x, plan_y: y });
+          });
+        }
+        return { ...table, x, y };
+      });
+    });
   }
 
   function moveBar(dx: number, dy: number) {
     const { maxX, maxY } = getCanvasClamp();
-    setPlannerBar((prev) => ({
-      ...prev,
-      x: clamp(prev.x + dx, 10, maxX - 10),
-      y: clamp(prev.y + dy, 10, maxY - 10),
-    }));
+    setPlannerBar((prev) => {
+      const next = {
+        ...prev,
+        x: clamp(prev.x + dx, 10, maxX - 10),
+        y: clamp(prev.y + dy, 10, maxY - 10),
+      };
+      if (!isDemo) {
+        queueMicrotask(() => {
+          void updateAdminFloorBar(next);
+        });
+      }
+      return next;
+    });
   }
 
   function updateSelectedZone(zone: "Interior" | "Terraza") {
     if (!selectedTableId) return;
-    setPlannerTables((prev) =>
-      prev.map((table) => (table.id === selectedTableId ? { ...table, zone } : table)),
-    );
+    setPlannerTables((prev) => {
+      return prev.map((table) => {
+        if (table.id !== selectedTableId) return table;
+        const merged: PlannerTable = { ...table, zone };
+        if (!isDemo && isLikelyServerTableId(merged.id)) {
+          void updateAdminTable(merged.id, { dining_area: toDiningArea(merged) });
+        }
+        return merged;
+      });
+    });
   }
 
   function codeTakenByOther(id: string, code: string) {
@@ -296,9 +384,29 @@ export default function AdminMesasPage() {
     );
   }
 
-  function patchTable(id: string, patch: Partial<Pick<PlannerTable, "code" | "minPax" | "maxPax" | "zone">>) {
-    setPlannerTables((prev) =>
-      prev.map((row) => {
+  function schedulePersistToServer(merged: PlannerTable) {
+    if (isDemo || !isLikelyServerTableId(merged.id)) return;
+    if (persistDebounce.current) clearTimeout(persistDebounce.current);
+    const snapshot = { ...merged };
+    persistDebounce.current = setTimeout(() => {
+      const d = toDiningArea(snapshot);
+      void updateAdminTable(snapshot.id, {
+        table_code: snapshot.code,
+        min_capacity: snapshot.minPax,
+        max_capacity: snapshot.maxPax,
+        dining_area: d,
+        plan_x: snapshot.x,
+        plan_y: snapshot.y,
+      });
+    }, 500);
+  }
+
+  function patchTable(
+    id: string,
+    patch: Partial<Pick<PlannerTable, "code" | "minPax" | "maxPax" | "zone" | "x" | "y">>,
+  ) {
+    setPlannerTables((prev) => {
+      const next = prev.map((row) => {
         if (row.id !== id) return row;
         if (patch.code !== undefined) {
           const c = patch.code.trim();
@@ -320,17 +428,32 @@ export default function AdminMesasPage() {
           }
         }
         const zone = patch.zone ?? row.zone;
-        return { ...row, code, minPax, maxPax, zone };
-      }),
-    );
+        const x = patch.x ?? row.x;
+        const y = patch.y ?? row.y;
+        return { ...row, code, minPax, maxPax, zone, x, y };
+      });
+      const merged = next.find((r) => r.id === id);
+      if (merged) {
+        schedulePersistToServer(merged);
+      }
+      return next;
+    });
   }
 
-  function deleteTable(id: string) {
+  async function deleteTable(id: string) {
+    if (!isDemo && isLikelyServerTableId(id)) {
+      try {
+        await deleteAdminTable(id);
+      } catch (e) {
+        setPlanError(e instanceof Error ? e.message : "No se pudo eliminar");
+        return;
+      }
+    }
     setPlannerTables((prev) => prev.filter((row) => row.id !== id));
     setSelectedTableId((current) => (current === id ? null : current));
   }
 
-  function addTable(kind: "sala" | "barra" | "terraza") {
+  async function addTable(kind: "sala" | "barra" | "terraza") {
     const prefix = kind === "sala" ? "S" : kind === "barra" ? "B" : "T";
     const nums = plannerTables
       .filter((t) => t.code.toUpperCase().startsWith(prefix))
@@ -341,31 +464,126 @@ export default function AdminMesasPage() {
     if (codeTakenByOther("", code)) {
       return;
     }
-    const zone: "Interior" | "Terraza" = kind === "terraza" ? "Terraza" : "Interior";
-    const newId = `planner-${code}-${Date.now()}`;
-    setPlannerTables((prev) => [
-      ...prev,
-      {
-        id: newId,
-        code,
-        zone,
-        minPax: kind === "barra" ? 1 : 2,
-        maxPax: kind === "barra" ? 2 : 4,
-        x: 100,
-        y: 100,
-      },
-    ]);
-    setSelectedTableId(newId);
-    setFloorView(kind === "terraza" ? "terraza" : "salaBarra");
+    const zone: PlannerZone = kind === "terraza" ? "Terraza" : "Interior";
+    const minPax = kind === "barra" ? 1 : 2;
+    const maxPax = kind === "barra" ? 2 : 4;
+    if (isDemo) {
+      const newId = `planner-${code}-${Date.now()}`;
+      setPlannerTables((prev) => [
+        ...prev,
+        { id: newId, code, zone, minPax, maxPax, x: 100, y: 100 },
+      ]);
+      setSelectedTableId(newId);
+      setFloorView(kind === "terraza" ? "terraza" : "salaBarra");
+      return;
+    }
+    setPlanError("");
+    try {
+      const d = toDiningArea({ code, zone });
+      const { table } = await createAdminTable({
+        table_code: code,
+        min_capacity: minPax,
+        max_capacity: maxPax,
+        dining_area: d,
+        plan_x: 100,
+        plan_y: 100,
+      });
+      if (table) {
+        setPlannerTables((prev) => [...prev, toPlanner(table)]);
+        setSelectedTableId(table.id);
+        setFloorView(kind === "terraza" ? "terraza" : "salaBarra");
+      }
+    } catch (e) {
+      setPlanError(e instanceof Error ? e.message : "No se pudo crear la mesa");
+    }
   }
+
+  async function seedFromTemplate() {
+    setPlanError("");
+    setPlanLoading(true);
+    try {
+      for (const row of defaultPlannerTables()) {
+        const d = toDiningArea({ code: row.code, zone: row.zone });
+        await createAdminTable({
+          table_code: row.code,
+          min_capacity: row.minPax,
+          max_capacity: row.maxPax,
+          dining_area: d,
+          plan_x: row.x,
+          plan_y: row.y,
+        });
+      }
+      const data = await fetchAdminFloorPlan();
+      if (data.tables && data.tables.length > 0) {
+        setPlannerTables((data.tables as AdminFloorPlanTable[]).map((t) => toPlanner(t)));
+      }
+      if (data.floorBar) {
+        const b = data.floorBar;
+        if (
+          typeof b.x === "number" &&
+          typeof b.y === "number" &&
+          typeof b.width === "number" &&
+          typeof b.height === "number"
+        ) {
+          setPlannerBar({ x: b.x, y: b.y, width: b.width, height: b.height });
+        }
+      } else {
+        setPlannerBar(DEFAULT_BAR);
+        await updateAdminFloorBar(DEFAULT_BAR);
+      }
+    } catch (e) {
+      setPlanError(e instanceof Error ? e.message : "Error al crear la plantilla");
+    } finally {
+      setPlanLoading(false);
+    }
+  }
+
+  const showDbEmptyCta = !isDemo && !planLoading && plannerTables.length === 0 && !planError;
 
   return (
     <section className="space-y-5">
       <SectionHeader
         title="Mesas"
-        description="Un plano por vista: Sala y barra, o Terraza. Ajusta posiciones; la lista refleja todas las mesas."
+        description={
+          isDemo
+            ? "Modo demostración: el plano se guarda solo en este navegador."
+            : "Plano y mesas reales (Supabase). Misma lógica que usaran los clientes al reservar."
+        }
       />
 
+      {isDemo ? (
+        <p className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-sm text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
+          Tienes <code className="text-xs">NEXT_PUBLIC_DEMO_MODE=true</code> en .env. Para entorno real, ponlo en
+          <code className="text-xs"> false</code> o bórralo, aplica las migraciones SQL y vuelve a desplegar.
+        </p>
+      ) : (
+        <p className="rounded-xl border border-border/80 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          Datos en Supabase. Confirma que la migración <code className="text-xs">20260428_tables_dining_floor.sql</code> esté
+          aplicada en el proyecto.
+        </p>
+      )}
+
+      {planError && !showDbEmptyCta ? (
+        <p className="text-sm text-destructive" role="alert">
+          {planError}
+        </p>
+      ) : null}
+
+      {showDbEmptyCta ? (
+        <Card className="space-y-3 p-4">
+          <p className="text-sm">No hay mesas creadas en la base de datos para este restaurante.</p>
+          <Button type="button" onClick={() => void seedFromTemplate()}>
+            Crear plantilla inicial (S, B, T según il Bandito)
+          </Button>
+        </Card>
+      ) : null}
+
+      {planLoading && !isDemo ? (
+        <p className="text-sm text-muted-foreground">Cargando plano y mesas…</p>
+      ) : null}
+
+      {showDbEmptyCta ? null : (
+        <>
       <Card className="space-y-4 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex w-full max-w-2xl gap-2 sm:w-auto">
@@ -410,8 +628,8 @@ export default function AdminMesasPage() {
           className="relative min-h-[min(60vh,560px)] w-full overflow-hidden rounded-2xl border border-border/80 bg-[#f7f2e7]"
           onClick={onCanvasClick}
           onPointerMove={onCanvasPointerMove}
-          onPointerUp={endDrag}
-          onPointerLeave={endDrag}
+          onPointerUp={handleCanvasPointerUp}
+          onPointerLeave={handleCanvasPointerUp}
         >
           <div className="absolute left-3 top-3 z-10 rounded-lg bg-card/95 px-3 py-1.5 text-sm font-semibold text-muted-foreground shadow-sm">
             {floorView === "salaBarra" ? "Sala y barra" : "Terraza"}
@@ -552,7 +770,7 @@ export default function AdminMesasPage() {
                   className="w-full text-primary hover:bg-primary/10"
                   onClick={() => {
                     if (window.confirm("¿Eliminar esta mesa del plano?")) {
-                      deleteTable(selectedTable.id);
+                      void deleteTable(selectedTable.id);
                     }
                   }}
                 >
@@ -586,12 +804,16 @@ export default function AdminMesasPage() {
                   <Input
                     type="number"
                     value={plannerBar.width}
-                    onChange={(event) =>
-                      setPlannerBar((prev) => ({
-                        ...prev,
-                        width: clamp(Number(event.target.value || 100), 70, 280),
-                      }))
-                    }
+                    onChange={(event) => {
+                      setPlannerBar((prev) => {
+                        const next = {
+                          ...prev,
+                          width: clamp(Number(event.target.value || 100), 70, 280),
+                        };
+                        if (!isDemo) void updateAdminFloorBar(next);
+                        return next;
+                      });
+                    }}
                   />
                 </div>
                 <div>
@@ -599,12 +821,16 @@ export default function AdminMesasPage() {
                   <Input
                     type="number"
                     value={plannerBar.height}
-                    onChange={(event) =>
-                      setPlannerBar((prev) => ({
-                        ...prev,
-                        height: clamp(Number(event.target.value || 60), 45, 200),
-                      }))
-                    }
+                    onChange={(event) => {
+                      setPlannerBar((prev) => {
+                        const next = {
+                          ...prev,
+                          height: clamp(Number(event.target.value || 60), 45, 200),
+                        };
+                        if (!isDemo) void updateAdminFloorBar(next);
+                        return next;
+                      });
+                    }}
                   />
                 </div>
               </div>
@@ -717,7 +943,7 @@ export default function AdminMesasPage() {
                             className="text-primary"
                             onClick={() => {
                               if (window.confirm("¿Eliminar esta mesa?")) {
-                                deleteTable(table.id);
+                                void deleteTable(table.id);
                               }
                             }}
                           >
@@ -733,6 +959,8 @@ export default function AdminMesasPage() {
           })}
         </div>
       </Card>
+        </>
+      )}
     </section>
   );
 }

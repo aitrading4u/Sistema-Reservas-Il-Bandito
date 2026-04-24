@@ -765,3 +765,87 @@ export async function upsertBlacklistFromContact(payload: {
     reason: "Bloqueado desde historial de contactos",
   });
 }
+
+export type AdminFloorPlanTable = {
+  id: string;
+  table_code: string;
+  min_capacity: number;
+  max_capacity: number;
+  dining_area: "sala" | "barra" | "terraza" | null;
+  plan_x: number | null;
+  plan_y: number | null;
+};
+
+export type AdminFloorBar = { x: number; y: number; width: number; height: number };
+
+export async function fetchAdminFloorPlan() {
+  if (isDemoMode()) {
+    return { floorBar: null as AdminFloorBar | null, tables: null as AdminFloorPlanTable[] | null };
+  }
+  const response = await adminFetch("/api/admin/tables", { cache: "no-store" });
+  return unwrapResponse<{
+    floorBar: AdminFloorBar | null;
+    tables: AdminFloorPlanTable[];
+  }>(response);
+}
+
+export async function createAdminTable(payload: {
+  table_code: string;
+  min_capacity: number;
+  max_capacity: number;
+  dining_area: "sala" | "barra" | "terraza";
+  plan_x?: number | null;
+  plan_y?: number | null;
+}) {
+  if (isDemoMode()) {
+    return { table: null as AdminFloorPlanTable | null };
+  }
+  const response = await adminFetch("/api/admin/tables", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return unwrapResponse<{ table: AdminFloorPlanTable }>(response);
+}
+
+export async function updateAdminTable(
+  id: string,
+  patch: Partial<{
+    table_code: string;
+    min_capacity: number;
+    max_capacity: number;
+    dining_area: "sala" | "barra" | "terraza" | null;
+    plan_x: number | null;
+    plan_y: number | null;
+  }>,
+) {
+  if (isDemoMode()) {
+    return { table: null as AdminFloorPlanTable | null };
+  }
+  const response = await adminFetch(`/api/admin/tables/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return unwrapResponse<{ table: AdminFloorPlanTable }>(response);
+}
+
+export async function deleteAdminTable(id: string) {
+  if (isDemoMode()) {
+    return { status: "ok" as const };
+  }
+  const response = await adminFetch(`/api/admin/tables/${id}`, { method: "DELETE" });
+  return unwrapResponse<{ status: string }>(response);
+}
+
+export async function updateAdminFloorBar(layout: AdminFloorBar) {
+  if (isDemoMode()) {
+    return { status: "ok" as const };
+  }
+  const response = await adminFetch("/api/admin/floor-bar", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(layout),
+  });
+  return unwrapResponse<{ status: string; floorBar: AdminFloorBar }>(response);
+}
