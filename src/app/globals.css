@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 36 35% 97%;
+  --foreground: 22 18% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 22 18% 12%;
+  --primary: 10 62% 44%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 34 28% 92%;
+  --muted-foreground: 24 10% 38%;
+  --border: 30 22% 83%;
+  --ring: 10 62% 44%;
+}
+
+* {
+  @apply border-border;
+}
+
+html,
+body {
+  @apply bg-background text-foreground antialiased;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply min-h-screen;
+  background-image:
+    radial-gradient(circle at 10% 0%, rgba(187, 146, 91, 0.09), transparent 35%),
+    radial-gradient(circle at 90% 0%, rgba(159, 54, 38, 0.08), transparent 32%);
+  background-attachment: fixed;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.2);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
