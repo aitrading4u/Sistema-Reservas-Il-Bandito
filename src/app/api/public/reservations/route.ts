@@ -4,6 +4,7 @@ import { fail, ok } from "@/lib/http";
 import { applyRateLimit, getClientIpFromRequest } from "@/lib/security/rate-limit";
 import { getDefaultRestaurantId } from "@/lib/supabase/admin";
 import { resolveEmailLocale } from "@/modules/notifications/application/email-locale";
+import { TelegramAlertService } from "@/modules/notifications/application/telegram-alert.service";
 import { TransactionalEmailService } from "@/modules/notifications/application/transactional-email.service";
 import {
   createPublicReservation,
@@ -17,6 +18,7 @@ import {
 export async function POST(request: Request) {
   let parsedInput: CreatePublicReservationInput | null = null;
   const emailService = new TransactionalEmailService();
+  const telegramService = new TelegramAlertService();
   try {
     const ip = getClientIpFromRequest(request);
     const limiter = applyRateLimit({
@@ -63,6 +65,15 @@ export async function POST(request: Request) {
       comments: parsed.data.comments,
       locale: parsed.data.locale ?? resolveEmailLocale(request.headers.get("accept-language")),
       instructions: ilBanditoConfig.confirmationTexts.defaultInstructions,
+    });
+    await telegramService.sendReservationCreated({
+      reservationCode: created.reservation_code,
+      customerName: parsed.data.customerName,
+      customerPhone: parsed.data.customerPhone,
+      partySize: parsed.data.partySize,
+      startAtISO: created.start_at,
+      comments: parsed.data.comments,
+      source: "web",
     });
 
     return ok(

@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/http";
 import { ilBanditoConfig } from "@/config/il-bandito.config";
 import { resolveEmailLocale } from "@/modules/notifications/application/email-locale";
+import { TelegramAlertService } from "@/modules/notifications/application/telegram-alert.service";
 import { TransactionalEmailService } from "@/modules/notifications/application/transactional-email.service";
 import { requireAdmin } from "@/lib/security/admin-auth";
 import {
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const emailService = new TransactionalEmailService();
+  const telegramService = new TelegramAlertService();
   try {
     const admin = await requireAdmin();
     const body = await request.json().catch(() => null);
@@ -67,6 +69,15 @@ export async function POST(request: Request) {
       comments: parsed.data.customerComment,
       locale: parsed.data.locale ?? resolveEmailLocale(request.headers.get("accept-language")),
       instructions: ilBanditoConfig.confirmationTexts.defaultInstructions,
+    });
+    void telegramService.sendReservationCreated({
+      reservationCode: created.reservation_code,
+      customerName: parsed.data.customerName,
+      customerPhone: parsed.data.customerPhone,
+      partySize: parsed.data.partySize,
+      startAtISO: created.start_at,
+      comments: parsed.data.customerComment,
+      source: "admin",
     });
 
     return ok(
