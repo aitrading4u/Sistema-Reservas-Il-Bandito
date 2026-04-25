@@ -1,12 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { isDemoMode } from "@/lib/demo-mode";
 import { openingHoursSeed } from "@/modules/admin/data/admin.seed";
 import type { OpeningHourRule } from "@/modules/admin/domain/admin.types";
+import {
+  createAdminOpeningHour,
+  fetchAdminOpeningHours,
+  removeAdminOpeningHour,
+  updateAdminOpeningHour,
+} from "@/modules/admin/infrastructure/admin-api";
 import { SectionHeader } from "@/modules/admin/ui/section-header";
 
 const weekdayMap: Record<number, string> = {
@@ -22,6 +28,7 @@ const weekdayMap: Record<number, string> = {
 const STORAGE_KEY = "ilbandito.demo.opening-hours.v1";
 
 export default function AdminHorariosPage() {
+  const demoMode = isDemoMode();
   const [rows, setRows] = useState<OpeningHourRule[]>(() => {
     if (typeof window === "undefined") return openingHoursSeed;
     const stored = window.localStorage.getItem(STORAGE_KEY);
@@ -34,9 +41,33 @@ export default function AdminHorariosPage() {
   });
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !demoMode) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  }, [rows]);
+  }, [rows, demoMode]);
+
+  useEffect(() => {
+    if (demoMode) return;
+    let mounted = true;
+    void fetchAdminOpeningHours()
+      .then((result) => {
+        if (!mounted) return;
+        const mapped: OpeningHourRule[] = result.items.map((row) => ({
+          id: row.id,
+          weekday: row.weekday,
+          service: row.service,
+          openTime: row.open_time.slice(0, 5),
+          closeTime: row.close_time.slice(0, 5),
+          active: row.is_active,
+        }));
+        setRows(mapped);
+      })
+      .catch(() => {
+        // fallback handled by existing local state
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [demoMode]);
 
   const sortedRows = useMemo(
     () =>
@@ -49,24 +80,64 @@ export default function AdminHorariosPage() {
   );
 
   function updateRow(id: string, patch: Partial<OpeningHourRule>) {
-    setRows((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    setRows((prev) => {
+      const next = prev.map((item) => (item.id === id ? { ...item, ...patch } : item));
+      if (!demoMode) {
+        const row = next.find((item) => item.id === id);
+        if (row) {
+          void updateAdminOpeningHour(id, {
+            weekday: row.weekday,
+            service: row.service,
+            open_time: row.openTime,
+            close_time: row.closeTime,
+            is_active: row.active,
+          });
+        }
+      }
+      return next;
+    });
   }
 
   function addRow() {
-    setRows((prev) => [
-      ...prev,
-      {
-        id: `oh-${Date.now()}`,
-        weekday: 1,
-        service: "lunch",
-        openTime: "13:00",
-        closeTime: "16:00",
-        active: true,
-      },
-    ]);
+    const draft: OpeningHourRule = {
+      id: `oh-${Date.now()}`,
+      weekday: 1,
+      service: "lunch",
+      openTime: "13:00",
+      closeTime: "16:00",
+      active: true,
+    };
+    if (demoMode) {
+      setRows((prev) => [...prev, draft]);
+      return;
+    }
+    void createAdminOpeningHour({
+      weekday: draft.weekday,
+      service: draft.service,
+      open_time: draft.openTime,
+      close_time: draft.closeTime,
+      is_active: draft.active,
+    }).then((created) => {
+      const item = created.item;
+      if (!item) return;
+      setRows((prev) => [
+        ...prev,
+        {
+          id: item.id,
+          weekday: item.weekday,
+          service: item.service,
+          openTime: item.open_time.slice(0, 5),
+          closeTime: item.close_time.slice(0, 5),
+          active: item.is_active,
+        },
+      ]);
+    });
   }
 
   function removeRow(id: string) {
+    if (!demoMode) {
+      void removeAdminOpeningHour(id);
+    }
     setRows((prev) => prev.filter((item) => item.id !== id));
   }
 
@@ -79,7 +150,9 @@ export default function AdminHorariosPage() {
       <Card className="p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            Puedes editar directamente cada fila. Los cambios se reflejan al instante en demo.
+            {demoMode
+              ? "Puedes editar directamente cada fila. Los cambios se reflejan al instante en demo."
+              : "Puedes editar cada fila y se guarda en la base de datos real."}
           </p>
           <Button onClick={addRow}>Añadir franja</Button>
         </div>

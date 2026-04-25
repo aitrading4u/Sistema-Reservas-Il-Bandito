@@ -1,6 +1,6 @@
 import { isDemoMode } from "@/lib/demo-mode";
 import { createSupabaseClient } from "@/lib/supabase/client";
-import { blockSeed, reservationSeed } from "@/modules/admin/data/admin.seed";
+import { blockSeed, openingHoursSeed, reservationSeed } from "@/modules/admin/data/admin.seed";
 
 export type AdminReservationStatus =
   | "pending"
@@ -848,4 +848,76 @@ export async function updateAdminFloorBar(layout: AdminFloorBar) {
     body: JSON.stringify(layout),
   });
   return unwrapResponse<{ status: string; floorBar: AdminFloorBar }>(response);
+}
+
+export type AdminOpeningHourRow = {
+  id: string;
+  weekday: number;
+  service: "lunch" | "dinner";
+  open_time: string;
+  close_time: string;
+  is_active: boolean;
+};
+
+export async function fetchAdminOpeningHours() {
+  if (isDemoMode()) {
+    const items = openingHoursSeed.map((row) => ({
+      id: row.id,
+      weekday: row.weekday,
+      service: row.service,
+      open_time: `${row.openTime}:00`,
+      close_time: `${row.closeTime}:00`,
+      is_active: row.active,
+    }));
+    return { items };
+  }
+  const response = await adminFetch("/api/admin/opening-hours", { cache: "no-store" });
+  return unwrapResponse<{ items: AdminOpeningHourRow[] }>(response);
+}
+
+export async function createAdminOpeningHour(payload: {
+  weekday: number;
+  service: "lunch" | "dinner";
+  open_time: string;
+  close_time: string;
+  is_active: boolean;
+}) {
+  if (isDemoMode()) {
+    return { item: null as AdminOpeningHourRow | null };
+  }
+  const response = await adminFetch("/api/admin/opening-hours", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return unwrapResponse<{ item: AdminOpeningHourRow }>(response);
+}
+
+export async function updateAdminOpeningHour(
+  id: string,
+  patch: Partial<{
+    weekday: number;
+    service: "lunch" | "dinner";
+    open_time: string;
+    close_time: string;
+    is_active: boolean;
+  }>,
+) {
+  if (isDemoMode()) {
+    return { item: null as AdminOpeningHourRow | null };
+  }
+  const response = await adminFetch(`/api/admin/opening-hours/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return unwrapResponse<{ item: AdminOpeningHourRow }>(response);
+}
+
+export async function removeAdminOpeningHour(id: string) {
+  if (isDemoMode()) {
+    return { status: "deleted" as const };
+  }
+  const response = await adminFetch(`/api/admin/opening-hours/${id}`, { method: "DELETE" });
+  return unwrapResponse<{ status: string }>(response);
 }

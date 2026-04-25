@@ -275,7 +275,7 @@ export class ReservationsRepository {
     const slotTimes: string[] = [];
     for (const range of openRanges) {
       let cursor = new Date(range.start);
-      while (cursor < range.end) {
+      while (addMinutes(cursor, duration) <= range.end) {
         slotTimes.push(utcDateToMadridTimeHHmm(cursor));
         cursor = addMinutes(cursor, rules.slot_interval_minutes);
       }
