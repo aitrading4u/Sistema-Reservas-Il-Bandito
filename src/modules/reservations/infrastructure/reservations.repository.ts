@@ -12,7 +12,6 @@ import {
 import {
   addMinutes,
   findBestCandidateForSlot,
-  isBookingWithinOpeningWindows,
   resolveDurationByPartySize,
   suggestNearbyTimes,
   type DurationRule,
@@ -275,7 +274,7 @@ export class ReservationsRepository {
     const slotTimes: string[] = [];
     for (const range of openRanges) {
       let cursor = new Date(range.start);
-      while (addMinutes(cursor, duration) <= range.end) {
+      while (cursor <= range.end) {
         slotTimes.push(utcDateToMadridTimeHHmm(cursor));
         cursor = addMinutes(cursor, rules.slot_interval_minutes);
       }
@@ -287,10 +286,7 @@ export class ReservationsRepository {
       const occupancyStart = addMinutes(startAt, -rules.default_buffer_before_minutes);
       const occupancyEnd = addMinutes(endAt, rules.default_buffer_after_minutes);
 
-      const withinService = isBookingWithinOpeningWindows(
-        { start: startAt, end: endAt },
-        openRanges,
-      );
+      const withinService = openRanges.some((window) => startAt >= window.start && startAt <= window.end);
       if (!withinService) {
         return { time, available: false };
       }
