@@ -6,13 +6,40 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 const baseSchema = z.object({
   weekday: z.coerce.number().int().min(1).max(7),
   service: z.enum(["lunch", "dinner"]),
-  open_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
-  close_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
+  open_time: z.string().min(1),
+  close_time: z.string().min(1),
   is_active: z.coerce.boolean().optional().default(true),
 });
 
 function normalizeTime(value: string) {
-  return value.length === 5 ? `${value}:00` : value;
+  const v = value.trim().toUpperCase();
+  const h24 = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+  const h12 = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/;
+
+  const m24 = v.match(h24);
+  if (m24) {
+    const hh = Number(m24[1]);
+    const mm = Number(m24[2]);
+    const ss = Number(m24[3] ?? "0");
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59) return null;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  }
+
+  const m12 = v.match(h12);
+  if (m12) {
+    let hh = Number(m12[1]);
+    const mm = Number(m12[2]);
+    const ap = m12[3];
+    if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
+    if (ap === "AM") {
+      if (hh === 12) hh = 0;
+    } else if (hh !== 12) {
+      hh += 12;
+    }
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00`;
+  }
+
+  return null;
 }
 
 function inferService(openTime: string): "lunch" | "dinner" {
@@ -51,7 +78,12 @@ export async function POST(request: Request) {
       return ok({ error: "Datos de horario invalidos.", details: parsed.error.flatten() }, 400);
     }
     const payload = parsed.data;
-    if (normalizeTime(payload.open_time) >= normalizeTime(payload.close_time)) {
+    const openTime = normalizeTime(payload.open_time);
+    const closeTime = normalizeTime(payload.close_time);
+    if (!openTime || !closeTime) {
+      return ok({ error: "Formato de hora invalido. Usa HH:MM o HH:MM AM/PM." }, 400);
+    }
+    if (openTime >= closeTime) {
       return ok({ error: "La hora de cierre debe ser mayor que la de apertura." }, 400);
     }
     const supabase = createSupabaseAdminClient();
@@ -60,8 +92,8 @@ export async function POST(request: Request) {
       .insert({
         restaurant_id: admin.restaurantId,
         weekday: payload.weekday,
-        open_time: normalizeTime(payload.open_time),
-        close_time: normalizeTime(payload.close_time),
+        open_time: openTime,
+        close_time: closeTime,
         is_active: payload.is_active,
       })
       .select("id, weekday, open_time, close_time, is_active")

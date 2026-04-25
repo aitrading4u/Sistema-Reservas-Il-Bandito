@@ -12,14 +12,41 @@ const patchSchema = z
   .object({
     weekday: z.coerce.number().int().min(1).max(7).optional(),
     service: z.enum(["lunch", "dinner"]).optional(),
-    open_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
-    close_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
+    open_time: z.string().min(1).optional(),
+    close_time: z.string().min(1).optional(),
     is_active: z.coerce.boolean().optional(),
   })
   .strict();
 
 function normalizeTime(value: string) {
-  return value.length === 5 ? `${value}:00` : value;
+  const v = value.trim().toUpperCase();
+  const h24 = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+  const h12 = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/;
+
+  const m24 = v.match(h24);
+  if (m24) {
+    const hh = Number(m24[1]);
+    const mm = Number(m24[2]);
+    const ss = Number(m24[3] ?? "0");
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59) return null;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  }
+
+  const m12 = v.match(h12);
+  if (m12) {
+    let hh = Number(m12[1]);
+    const mm = Number(m12[2]);
+    const ap = m12[3];
+    if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
+    if (ap === "AM") {
+      if (hh === 12) hh = 0;
+    } else if (hh !== 12) {
+      hh += 12;
+    }
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00`;
+  }
+
+  return null;
 }
 
 function inferService(openTime: string): "lunch" | "dinner" {
@@ -42,8 +69,16 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const update: Record<string, unknown> = {};
     if (parsed.data.weekday !== undefined) update.weekday = parsed.data.weekday;
-    if (parsed.data.open_time !== undefined) update.open_time = normalizeTime(parsed.data.open_time);
-    if (parsed.data.close_time !== undefined) update.close_time = normalizeTime(parsed.data.close_time);
+    if (parsed.data.open_time !== undefined) {
+      const open = normalizeTime(parsed.data.open_time);
+      if (!open) return ok({ error: "Formato de hora de apertura invalido." }, 400);
+      update.open_time = open;
+    }
+    if (parsed.data.close_time !== undefined) {
+      const close = normalizeTime(parsed.data.close_time);
+      if (!close) return ok({ error: "Formato de hora de cierre invalido." }, 400);
+      update.close_time = close;
+    }
     if (parsed.data.is_active !== undefined) update.is_active = parsed.data.is_active;
     if (Object.keys(update).length === 0) return ok({ error: "Nada que actualizar." }, 400);
 
