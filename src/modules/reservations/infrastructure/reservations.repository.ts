@@ -172,7 +172,8 @@ export class ReservationsRepository {
         .eq("restaurant_id", input.restaurantId)
         .eq("weekday", weekday)
         .eq("is_active", true)
-        .is("deleted_at", null),
+        .is("deleted_at", null)
+        .order("open_time", { ascending: true }),
       this.supabase
         .from("special_closures")
         .select("closure_date, starts_at, ends_at, is_full_day")
@@ -279,8 +280,9 @@ export class ReservationsRepository {
         cursor = addMinutes(cursor, rules.slot_interval_minutes);
       }
     }
+    const orderedSlotTimes = [...new Set(slotTimes)].sort((a, b) => a.localeCompare(b));
 
-    const slots = slotTimes.map((time) => {
+    const slots = orderedSlotTimes.map((time) => {
       const startAt = buildDateTimeISO(input.date, time);
       const endAt = addMinutes(startAt, duration);
       const occupancyStart = addMinutes(startAt, -rules.default_buffer_before_minutes);

@@ -48,8 +48,8 @@ export default async function AdminLayout({
             </div>
             <AdminLogoutButton />
           </div>
-          <nav aria-label="Navegacion admin" className="mt-3 overflow-x-auto">
-            <ul className="flex min-w-max items-center gap-2 text-sm">
+          <nav aria-label="Navegacion admin" className="mt-3">
+            <ul className="flex flex-wrap items-center gap-2 text-sm">
               {links.map((link) => (
                 <li key={link.href}>
                   <Link

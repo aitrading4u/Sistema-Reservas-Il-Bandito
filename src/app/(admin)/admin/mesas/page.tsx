@@ -173,6 +173,7 @@ export default function AdminMesasPage() {
   const [plannerTables, setPlannerTables] = useState<PlannerTable[]>(() => (isDemo ? loadPlannerTablesFromStorage() : []));
   const [planLoading, setPlanLoading] = useState(!isDemo);
   const [planError, setPlanError] = useState("");
+  const [paxDrafts, setPaxDrafts] = useState<Record<string, { min?: string; max?: string }>>({});
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [plannerBar, setPlannerBar] = useState<PlannerBar>(() => {
     if (typeof window === "undefined" || !isDemo) {
@@ -253,6 +254,54 @@ export default function AdminMesasPage() {
   );
   const visibleTables = floorView === "salaBarra" ? interiorTables : terrazaTables;
   const listGroups = useMemo(() => tablesByCategory(plannerTables), [plannerTables]);
+
+  function getPaxInputValue(table: PlannerTable, field: "min" | "max") {
+    const draft = paxDrafts[table.id]?.[field];
+    if (draft !== undefined) return draft;
+    return String(field === "min" ? table.minPax : table.maxPax);
+  }
+
+  function onPaxDraftChange(tableId: string, field: "min" | "max", raw: string) {
+    if (!/^\d{0,3}$/.test(raw)) return;
+    setPaxDrafts((prev) => ({
+      ...prev,
+      [tableId]: { ...(prev[tableId] ?? {}), [field]: raw },
+    }));
+  }
+
+  function commitPaxDraft(table: PlannerTable, field: "min" | "max") {
+    const raw = paxDrafts[table.id]?.[field];
+    if (raw === undefined) return;
+    if (raw.trim() === "") {
+      setPaxDrafts((prev) => {
+        const next = { ...(prev[table.id] ?? {}) };
+        delete next[field];
+        const clone = { ...prev };
+        if (Object.keys(next).length === 0) {
+          delete clone[table.id];
+        } else {
+          clone[table.id] = next;
+        }
+        return clone;
+      });
+      return;
+    }
+    const parsed = Math.max(1, Math.min(99, Number(raw)));
+    if (Number.isFinite(parsed)) {
+      patchTable(table.id, field === "min" ? { minPax: parsed } : { maxPax: parsed });
+    }
+    setPaxDrafts((prev) => {
+      const next = { ...(prev[table.id] ?? {}) };
+      delete next[field];
+      const clone = { ...prev };
+      if (Object.keys(next).length === 0) {
+        delete clone[table.id];
+      } else {
+        clone[table.id] = next;
+      }
+      return clone;
+    });
+  }
 
   function getCanvasClamp() {
     const el = canvasRef.current;
@@ -723,26 +772,32 @@ export default function AdminMesasPage() {
                       <Label htmlFor="sel-min" className="text-xs">Min.</Label>
                       <Input
                         id="sel-min"
-                        type="number"
-                        min={1}
-                        max={99}
-                        value={selectedTable.minPax}
-                        onChange={(e) =>
-                          patchTable(selectedTable.id, { minPax: Number(e.target.value || 1) })
-                        }
+                        type="text"
+                        inputMode="numeric"
+                        value={getPaxInputValue(selectedTable, "min")}
+                        onChange={(e) => onPaxDraftChange(selectedTable.id, "min", e.target.value)}
+                        onBlur={() => commitPaxDraft(selectedTable, "min")}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.currentTarget.blur();
+                          }
+                        }}
                       />
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="sel-max" className="text-xs">Max.</Label>
                       <Input
                         id="sel-max"
-                        type="number"
-                        min={1}
-                        max={99}
-                        value={selectedTable.maxPax}
-                        onChange={(e) =>
-                          patchTable(selectedTable.id, { maxPax: Number(e.target.value || 1) })
-                        }
+                        type="text"
+                        inputMode="numeric"
+                        value={getPaxInputValue(selectedTable, "max")}
+                        onChange={(e) => onPaxDraftChange(selectedTable.id, "max", e.target.value)}
+                        onBlur={() => commitPaxDraft(selectedTable, "max")}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.currentTarget.blur();
+                          }
+                        }}
                       />
                     </div>
                   </div>
@@ -897,14 +952,17 @@ export default function AdminMesasPage() {
                             </Label>
                             <Input
                               id={`min-${table.id}`}
-                              type="number"
-                              min={1}
-                              max={99}
+                              type="text"
+                              inputMode="numeric"
                               className="min-w-0"
-                              value={table.minPax}
-                              onChange={(e) =>
-                                patchTable(table.id, { minPax: Number(e.target.value || 1) })
-                              }
+                              value={getPaxInputValue(table, "min")}
+                              onChange={(e) => onPaxDraftChange(table.id, "min", e.target.value)}
+                              onBlur={() => commitPaxDraft(table, "min")}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.currentTarget.blur();
+                                }
+                              }}
                             />
                           </div>
                           <div className="space-y-1">
@@ -913,14 +971,17 @@ export default function AdminMesasPage() {
                             </Label>
                             <Input
                               id={`max-${table.id}`}
-                              type="number"
-                              min={1}
-                              max={99}
+                              type="text"
+                              inputMode="numeric"
                               className="min-w-0"
-                              value={table.maxPax}
-                              onChange={(e) =>
-                                patchTable(table.id, { maxPax: Number(e.target.value || 1) })
-                              }
+                              value={getPaxInputValue(table, "max")}
+                              onChange={(e) => onPaxDraftChange(table.id, "max", e.target.value)}
+                              onBlur={() => commitPaxDraft(table, "max")}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.currentTarget.blur();
+                                }
+                              }}
                             />
                           </div>
                         </div>
